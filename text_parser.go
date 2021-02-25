@@ -27,6 +27,9 @@ type textPlistParser struct {
 	start int
 	pos   int
 	width int
+
+	// To change plist in place, return start and end bytes of dictionaries
+	rawBytesOffset int
 }
 
 func convertU16(buffer []byte, bo binary.ByteOrder) (string, error) {
@@ -41,30 +44,34 @@ func convertU16(buffer []byte, bo binary.ByteOrder) (string, error) {
 	return string(utf16.Decode(tmp)), nil
 }
 
-func guessEncodingAndConvert(buffer []byte) (string, error) {
+func guessEncodingAndConvert(buffer []byte) (int, string, error) {
 	if len(buffer) >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF {
 		// UTF-8 BOM
-		return zeroCopy8BitString(buffer, 3, len(buffer)-3), nil
+		return 3, zeroCopy8BitString(buffer, 3, len(buffer)-3), nil
 	} else if len(buffer) >= 2 {
 		// UTF-16 guesses
 
 		switch {
 		// stream is big-endian (BOM is FE FF or head is 00 XX)
 		case (buffer[0] == 0xFE && buffer[1] == 0xFF):
-			return convertU16(buffer[2:], binary.BigEndian)
+			s, err := convertU16(buffer[2:], binary.BigEndian)
+			return -1, s, err
 		case (buffer[0] == 0 && buffer[1] != 0):
-			return convertU16(buffer, binary.BigEndian)
+			s, err := convertU16(buffer, binary.BigEndian)
+			return -1, s, err
 
 		// stream is little-endian (BOM is FE FF or head is XX 00)
 		case (buffer[0] == 0xFF && buffer[1] == 0xFE):
-			return convertU16(buffer[2:], binary.LittleEndian)
+			s, err := convertU16(buffer[2:], binary.LittleEndian)
+			return -1, s, err
 		case (buffer[0] != 0 && buffer[1] == 0):
-			return convertU16(buffer, binary.LittleEndian)
+			s, err := convertU16(buffer, binary.LittleEndian)
+			return -1, s, err
 		}
 	}
 
 	// fallback: assume ASCII (not great!)
-	return zeroCopy8BitString(buffer, 0, len(buffer)), nil
+	return 0, zeroCopy8BitString(buffer, 0, len(buffer)), nil
 }
 
 func (p *textPlistParser) parseDocument() (pval cfValue, parseError error) {
@@ -83,7 +90,7 @@ func (p *textPlistParser) parseDocument() (pval cfValue, parseError error) {
 		panic(err)
 	}
 
-	p.input, err = guessEncodingAndConvert(buffer)
+	p.rawBytesOffset, p.input, err = guessEncodingAndConvert(buffer)
 	if err != nil {
 		panic(err)
 	}
@@ -321,6 +328,7 @@ func (p *textPlistParser) parseUnquotedString() cfString {
 
 // the { has already been consumed
 func (p *textPlistParser) parseDictionary(ignoreEof bool) cfValue {
+	startPos := p.pos
 	//p.ignore() // ignore the {
 	var keypv cfValue
 	keys := make([]string, 0, 32)
@@ -371,6 +379,23 @@ outer:
 
 		keys = append(keys, string(keypv.(cfString)))
 		values = append(values, val)
+	}
+
+	// Save the start and end position of the dictionary in a custom key in the dictionary
+	// This allows to modify only the changed part of the file
+	endPos := p.pos
+	if startPos > 0 {
+		startPos = startPos - 1 // to include the starting '{'
+	}
+	if p.rawBytesOffset != -1 {
+		keys = append(keys, "__br_raw")
+		values = append(values, &cfDictionary{
+			keys: []string{"start", "end"},
+			values: []cfValue{
+				&cfNumber{value: uint64(startPos + p.rawBytesOffset), signed: true},
+				&cfNumber{value: uint64(endPos + p.rawBytesOffset), signed: true},
+			},
+		})
 	}
 
 	dict := &cfDictionary{keys: keys, values: values}
