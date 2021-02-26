@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkXMLDecode(b *testing.B) {
@@ -139,6 +137,7 @@ func TestDecode(t *testing.T) {
 			expVal = expReflect.Interface()
 
 			results := make(map[int]interface{})
+			// Unmarshal
 			for fmt, doc := range test.Documents {
 				if test.SkipDecode[fmt] {
 					return
@@ -161,8 +160,13 @@ func TestDecode(t *testing.T) {
 					}
 
 					results[fmt] = val
-					require.Equal(t, expVal, val)
+					if !reflect.DeepEqual(expVal, val) {
+						t.Logf("Expected: %#v\n", expVal)
+						t.Logf("Received: %#v\n", val)
+						t.Fail()
+					}
 				})
+				// UnmarshalWithCustomAnnotation
 				subtest(t, FormatNames[fmt], func(t *testing.T) {
 					val := reflect.New(expReflect.Type()).Interface()
 					_, err := UnmarshalWithCustomAnnotation(doc, val)
@@ -182,7 +186,11 @@ func TestDecode(t *testing.T) {
 					}
 
 					results[fmt] = val
-					require.Equal(t, expVal, val)
+					if !reflect.DeepEqual(expVal, val) {
+						t.Logf("Expected: %#v\n", expVal)
+						t.Logf("Received: %#v\n", val)
+						t.Fail()
+					}
 				})
 			}
 
