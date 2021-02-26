@@ -20,7 +20,11 @@ import (
 	"unicode/utf8"
 )
 
-const CustomAnnotationKey = "__br_annotation"
+const (
+	CustomAnnotationKey      = "__br_annotation"
+	CustomAnnotationStartKey = "start"
+	CustomAnnotationEndKey   = "end"
+)
 
 type textPlistParser struct {
 	reader io.Reader
@@ -31,7 +35,7 @@ type textPlistParser struct {
 	pos   int
 	width int
 
-	// To change plist in place, return start and end bytes of dictionaries
+	// Neeeded to access the raw byte offset, to modify content in-place
 	rawBytesOffset int
 }
 
@@ -389,14 +393,17 @@ outer:
 
 	dict := &cfDictionary{keys: keys, values: values}
 	maybeUIDVal := dict.maybeUID(p.format == OpenStepFormat)
+	// If the content was converted (from UTF-16) then can not return the raw byte offsets
+	if p.rawBytesOffset == -1 {
+		return maybeUIDVal
+	}
+	// Not annotating if it is an UID
 	_, ok := maybeUIDVal.(*cfDictionary)
 	if !ok {
 		return maybeUIDVal
 	}
-	if len(keys) == 1 && keys[0] == "" {
-		return maybeUIDVal
-	}
-	if p.input[startPos] != '{' {
+	// Prevent breaking tests with empty key or when the dictionary is legacy string list type
+	if len(keys) == 1 && keys[0] == "" || p.input[startPos] != '{' {
 		return maybeUIDVal
 	}
 
@@ -408,7 +415,6 @@ outer:
 			break
 		}
 	}
-
 	if foundFunnyChars {
 		return maybeUIDVal
 	}
@@ -416,16 +422,14 @@ outer:
 	// Save the start and end position of the dictionary in a custom key in the dictionary
 	// This allows to modify only the changed part of the file
 	endPos := p.pos
-	if p.rawBytesOffset != -1 {
-		keys = append(keys, CustomAnnotationKey)
-		values = append(values, &cfDictionary{
-			keys: []string{"start", "end"},
-			values: []cfValue{
-				&cfNumber{value: uint64(startPos + p.rawBytesOffset), signed: true},
-				&cfNumber{value: uint64(endPos + p.rawBytesOffset), signed: true},
-			},
-		})
-	}
+	keys = append(keys, CustomAnnotationKey)
+	values = append(values, &cfDictionary{
+		keys: []string{CustomAnnotationStartKey, CustomAnnotationEndKey},
+		values: []cfValue{
+			&cfNumber{value: uint64(startPos + p.rawBytesOffset), signed: true},
+			&cfNumber{value: uint64(endPos + p.rawBytesOffset), signed: true},
+		},
+	})
 
 	return &cfDictionary{keys: keys, values: values}
 }
