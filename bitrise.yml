@@ -10,4 +10,4 @@ workflows:
     steps:
     - go-test:
         inputs:
-        - packages: howett.net/plist
+        - packages: github.com/bitrise-io/go-plist
