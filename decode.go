@@ -16,8 +16,9 @@ type Decoder struct {
 	// the format of the most-recently-decoded property list
 	Format int
 
-	reader io.ReadSeeker
-	lax    bool
+	reader               io.ReadSeeker
+	lax                  bool
+	addCustomAnnotations bool
 }
 
 // Decode works like Unmarshal, except it reads the decoder stream to find property list elements.
@@ -55,6 +56,9 @@ func (p *Decoder) Decode(v interface{}) (err error) {
 			p.reader.Seek(0, 0)
 			// We don't use parser here because we want the textPlistParser type
 			tp := newTextPlistParser(p.reader)
+			if p.addCustomAnnotations {
+				tp = newTextPlistParserWithCustomAnnotations(p.reader)
+			}
 			pval, err = tp.parseDocument()
 			if err != nil {
 				return err
@@ -81,6 +85,11 @@ func (p *Decoder) Decode(v interface{}) (err error) {
 // NewDecoder requires a Seekable stream for the purposes of file type detection.
 func NewDecoder(r io.ReadSeeker) *Decoder {
 	return &Decoder{Format: InvalidFormat, reader: r, lax: false}
+}
+
+// newCustomAnnotationDecoder returns a custom Decoder
+func newCustomAnnotationDecoder(r io.ReadSeeker) *Decoder {
+	return &Decoder{Format: InvalidFormat, reader: r, lax: false, addCustomAnnotations: true}
 }
 
 // Unmarshal parses a property list document and stores the result in the value pointed to by v.
@@ -113,6 +122,16 @@ func NewDecoder(r io.ReadSeeker) *Decoder {
 func Unmarshal(data []byte, v interface{}) (format int, err error) {
 	r := bytes.NewReader(data)
 	dec := NewDecoder(r)
+	err = dec.Decode(v)
+	format = dec.Format
+	return
+}
+
+// UnmarshalWithCustomAnnotation the same as Unmarshal, with extra metadata keys added for the OpenStep and GnuStep formats.
+// Metadata contains the raw byte starting and end position of dictionaries in the input data.
+func UnmarshalWithCustomAnnotation(data []byte, v interface{}) (format int, err error) {
+	r := bytes.NewReader(data)
+	dec := newCustomAnnotationDecoder(r)
 	err = dec.Decode(v)
 	format = dec.Format
 	return

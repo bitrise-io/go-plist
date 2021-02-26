@@ -144,8 +144,28 @@ func TestDecode(t *testing.T) {
 					return
 				}
 				subtest(t, FormatNames[fmt], func(t *testing.T) {
+					if test.TestCustomAnnotiation {
+						return
+					}
 					val := reflect.New(expReflect.Type()).Interface()
 					_, err := Unmarshal(doc, val)
+					if err != nil {
+						t.Error(err)
+					}
+
+					valReflect := reflect.ValueOf(val)
+					if valReflect.Kind() == reflect.Ptr || valReflect.Kind() == reflect.Interface {
+						// Unbox pointer for comparison's sake
+						valReflect = valReflect.Elem()
+						val = valReflect.Interface()
+					}
+
+					results[fmt] = val
+					require.Equal(t, expVal, val)
+				})
+				subtest(t, FormatNames[fmt], func(t *testing.T) {
+					val := reflect.New(expReflect.Type()).Interface()
+					_, err := UnmarshalWithCustomAnnotation(doc, val)
 					if err != nil {
 						t.Error(err)
 					}

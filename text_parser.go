@@ -36,7 +36,8 @@ type textPlistParser struct {
 	width int
 
 	// Neeeded to access the raw byte offset, to modify content in-place
-	rawBytesOffset int
+	useCustomAnnotations bool
+	rawBytesOffset       int
 }
 
 func convertU16(buffer []byte, bo binary.ByteOrder) (string, error) {
@@ -394,7 +395,7 @@ outer:
 	dict := &cfDictionary{keys: keys, values: values}
 	maybeUIDVal := dict.maybeUID(p.format == OpenStepFormat)
 	// If the content was converted (from UTF-16) then can not return the raw byte offsets
-	if p.rawBytesOffset == -1 {
+	if !p.useCustomAnnotations || p.rawBytesOffset == -1 {
 		return maybeUIDVal
 	}
 	// Not annotating if it is an UID
@@ -633,5 +634,13 @@ func newTextPlistParser(r io.Reader) *textPlistParser {
 	return &textPlistParser{
 		reader: r,
 		format: OpenStepFormat,
+	}
+}
+
+func newTextPlistParserWithCustomAnnotations(r io.Reader) *textPlistParser {
+	return &textPlistParser{
+		reader:               r,
+		format:               OpenStepFormat,
+		useCustomAnnotations: true,
 	}
 }
