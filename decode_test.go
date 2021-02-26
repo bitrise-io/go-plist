@@ -107,6 +107,17 @@ func TestIllegalDecode(t *testing.T) {
 	}
 }
 
+func removeCustomAnnotion(object interface{}) {
+	m, ok := object.(map[string]interface{})
+	if !ok {
+		return
+	}
+	delete(m, CustomAnnotationKey)
+	for _, value := range m {
+		removeCustomAnnotion(value)
+	}
+}
+
 func TestDecode(t *testing.T) {
 	for _, test := range tests {
 		subtest(t, test.Name, func(t *testing.T) {
@@ -143,6 +154,8 @@ func TestDecode(t *testing.T) {
 						valReflect = valReflect.Elem()
 						val = valReflect.Interface()
 					}
+
+					removeCustomAnnotion(val)
 
 					results[fmt] = val
 					if !reflect.DeepEqual(expVal, val) {

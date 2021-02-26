@@ -12,12 +12,15 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 )
+
+const CustomAnnotationKey = "__br_annotation"
 
 type textPlistParser struct {
 	reader io.Reader
@@ -329,6 +332,9 @@ func (p *textPlistParser) parseUnquotedString() cfString {
 // the { has already been consumed
 func (p *textPlistParser) parseDictionary(ignoreEof bool) cfValue {
 	startPos := p.pos
+	if startPos > 0 {
+		startPos = startPos - 1 // to include the starting '{'
+	}
 	//p.ignore() // ignore the {
 	var keypv cfValue
 	keys := make([]string, 0, 32)
@@ -381,14 +387,37 @@ outer:
 		values = append(values, val)
 	}
 
+	dict := &cfDictionary{keys: keys, values: values}
+	maybeUIDVal := dict.maybeUID(p.format == OpenStepFormat)
+	_, ok := maybeUIDVal.(*cfDictionary)
+	if !ok {
+		return maybeUIDVal
+	}
+	if len(keys) == 1 && keys[0] == "" {
+		return maybeUIDVal
+	}
+	if p.input[startPos] != '{' {
+		return maybeUIDVal
+	}
+
+	r := regexp.MustCompile("[^A-Za-z0-9_-]")
+	foundFunnyChars := false
+	for _, k := range keys {
+		if res := r.Find([]byte(k)); res != nil {
+			foundFunnyChars = true
+			break
+		}
+	}
+
+	if foundFunnyChars {
+		return maybeUIDVal
+	}
+
 	// Save the start and end position of the dictionary in a custom key in the dictionary
 	// This allows to modify only the changed part of the file
 	endPos := p.pos
-	if startPos > 0 {
-		startPos = startPos - 1 // to include the starting '{'
-	}
 	if p.rawBytesOffset != -1 {
-		keys = append(keys, "__br_raw")
+		keys = append(keys, CustomAnnotationKey)
 		values = append(values, &cfDictionary{
 			keys: []string{"start", "end"},
 			values: []cfValue{
@@ -398,8 +427,7 @@ outer:
 		})
 	}
 
-	dict := &cfDictionary{keys: keys, values: values}
-	return dict.maybeUID(p.format == OpenStepFormat)
+	return &cfDictionary{keys: keys, values: values}
 }
 
 // the ( has already been consumed
