@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkXMLDecode(b *testing.B) {
@@ -155,14 +157,12 @@ func TestDecode(t *testing.T) {
 						val = valReflect.Interface()
 					}
 
-					removeCustomAnnotion(val)
+					if !test.TestCustomAnnotiation {
+						removeCustomAnnotion(val)
+					}
 
 					results[fmt] = val
-					if !reflect.DeepEqual(expVal, val) {
-						t.Logf("Expected: %#v\n", expVal)
-						t.Logf("Received: %#v\n", val)
-						t.Fail()
-					}
+					require.Equal(t, expVal, val)
 				})
 			}
 
