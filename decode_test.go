@@ -107,6 +107,17 @@ func TestIllegalDecode(t *testing.T) {
 	}
 }
 
+func removeCustomAnnotion(object interface{}) {
+	m, ok := object.(map[string]interface{})
+	if !ok {
+		return
+	}
+	delete(m, CustomAnnotationKey)
+	for _, value := range m {
+		removeCustomAnnotion(value)
+	}
+}
+
 func TestDecode(t *testing.T) {
 	for _, test := range tests {
 		subtest(t, test.Name, func(t *testing.T) {
@@ -126,11 +137,15 @@ func TestDecode(t *testing.T) {
 			expVal = expReflect.Interface()
 
 			results := make(map[int]interface{})
+			// Unmarshal
 			for fmt, doc := range test.Documents {
 				if test.SkipDecode[fmt] {
 					return
 				}
 				subtest(t, FormatNames[fmt], func(t *testing.T) {
+					if test.TestCustomAnnotiation {
+						return
+					}
 					val := reflect.New(expReflect.Type()).Interface()
 					_, err := Unmarshal(doc, val)
 					if err != nil {
@@ -142,6 +157,32 @@ func TestDecode(t *testing.T) {
 						// Unbox pointer for comparison's sake
 						valReflect = valReflect.Elem()
 						val = valReflect.Interface()
+					}
+
+					results[fmt] = val
+					if !reflect.DeepEqual(expVal, val) {
+						t.Logf("Expected: %#v\n", expVal)
+						t.Logf("Received: %#v\n", val)
+						t.Fail()
+					}
+				})
+				// UnmarshalWithCustomAnnotation
+				subtest(t, FormatNames[fmt], func(t *testing.T) {
+					val := reflect.New(expReflect.Type()).Interface()
+					_, err := UnmarshalWithCustomAnnotation(doc, val)
+					if err != nil {
+						t.Error(err)
+					}
+
+					valReflect := reflect.ValueOf(val)
+					if valReflect.Kind() == reflect.Ptr || valReflect.Kind() == reflect.Interface {
+						// Unbox pointer for comparison's sake
+						valReflect = valReflect.Elem()
+						val = valReflect.Interface()
+					}
+
+					if !test.TestCustomAnnotiation {
+						removeCustomAnnotion(val)
 					}
 
 					results[fmt] = val

@@ -8,12 +8,13 @@ import (
 )
 
 type TestData struct {
-	Name        string
-	Value       interface{}
-	DecodeValue interface{} // used when the document cannot encode parts of Value
-	Documents   map[int][]byte
-	SkipDecode  map[int]bool
-	SkipEncode  map[int]bool
+	Name                  string
+	Value                 interface{}
+	DecodeValue           interface{} // used when the document cannot encode parts of Value
+	Documents             map[int][]byte
+	SkipDecode            map[int]bool
+	SkipEncode            map[int]bool
+	TestCustomAnnotiation bool
 }
 
 type SparseBundleHeader struct {
@@ -950,6 +951,40 @@ var tests = []TestData{
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24,
 			},
 		},
+		SkipEncode: map[int]bool{XMLFormat: true, OpenStepFormat: true, GNUStepFormat: true, BinaryFormat: true},
+	},
+	{
+		Name:                  "Dictionary Keys with custom annotation",
+		TestCustomAnnotiation: true,
+		Value: map[string]interface{}{
+			"key": "value",
+			"__br_annotation": map[string]interface{}{
+				"start": int64(0),
+				"end":   int64(18),
+			},
+		},
+		Documents: map[int][]byte{
+			XMLFormat:      {},
+			OpenStepFormat: []byte(`{"key" = "value";}`),
+			GNUStepFormat:  []byte(`{"key" = "value";}`),
+			BinaryFormat:   {},
+		},
+		SkipDecode: map[int]bool{XMLFormat: true, BinaryFormat: true},
+		SkipEncode: map[int]bool{XMLFormat: true, OpenStepFormat: true, GNUStepFormat: true, BinaryFormat: true},
+	},
+	{
+		Name:                  "Dictionary Keys with custom annotation (XML format)",
+		TestCustomAnnotiation: true,
+		Value: map[string]interface{}{
+			"key": "value",
+		},
+		Documents: map[int][]byte{
+			XMLFormat:      []byte(`<plist><dict><key>key</key><string>value</string></dict></plist>`),
+			OpenStepFormat: {},
+			GNUStepFormat:  {},
+			BinaryFormat:   {},
+		},
+		SkipDecode: map[int]bool{BinaryFormat: true, OpenStepFormat: true, GNUStepFormat: true},
 		SkipEncode: map[int]bool{XMLFormat: true, OpenStepFormat: true, GNUStepFormat: true, BinaryFormat: true},
 	},
 	{

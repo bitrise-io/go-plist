@@ -12,11 +12,18 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
+)
+
+const (
+	CustomAnnotationKey      = "__br_annotation"
+	CustomAnnotationStartKey = "start"
+	CustomAnnotationEndKey   = "end"
 )
 
 type textPlistParser struct {
@@ -27,6 +34,10 @@ type textPlistParser struct {
 	start int
 	pos   int
 	width int
+
+	// Neeeded to access the raw byte offset, to modify content in-place
+	useCustomAnnotations bool
+	rawBytesOffset       int
 }
 
 func convertU16(buffer []byte, bo binary.ByteOrder) (string, error) {
@@ -41,30 +52,34 @@ func convertU16(buffer []byte, bo binary.ByteOrder) (string, error) {
 	return string(utf16.Decode(tmp)), nil
 }
 
-func guessEncodingAndConvert(buffer []byte) (string, error) {
+func guessEncodingAndConvert(buffer []byte) (int, string, error) {
 	if len(buffer) >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF {
 		// UTF-8 BOM
-		return zeroCopy8BitString(buffer, 3, len(buffer)-3), nil
+		return 3, zeroCopy8BitString(buffer, 3, len(buffer)-3), nil
 	} else if len(buffer) >= 2 {
 		// UTF-16 guesses
 
 		switch {
 		// stream is big-endian (BOM is FE FF or head is 00 XX)
 		case (buffer[0] == 0xFE && buffer[1] == 0xFF):
-			return convertU16(buffer[2:], binary.BigEndian)
+			s, err := convertU16(buffer[2:], binary.BigEndian)
+			return -1, s, err
 		case (buffer[0] == 0 && buffer[1] != 0):
-			return convertU16(buffer, binary.BigEndian)
+			s, err := convertU16(buffer, binary.BigEndian)
+			return -1, s, err
 
 		// stream is little-endian (BOM is FE FF or head is XX 00)
 		case (buffer[0] == 0xFF && buffer[1] == 0xFE):
-			return convertU16(buffer[2:], binary.LittleEndian)
+			s, err := convertU16(buffer[2:], binary.LittleEndian)
+			return -1, s, err
 		case (buffer[0] != 0 && buffer[1] == 0):
-			return convertU16(buffer, binary.LittleEndian)
+			s, err := convertU16(buffer, binary.LittleEndian)
+			return -1, s, err
 		}
 	}
 
 	// fallback: assume ASCII (not great!)
-	return zeroCopy8BitString(buffer, 0, len(buffer)), nil
+	return 0, zeroCopy8BitString(buffer, 0, len(buffer)), nil
 }
 
 func (p *textPlistParser) parseDocument() (pval cfValue, parseError error) {
@@ -83,7 +98,7 @@ func (p *textPlistParser) parseDocument() (pval cfValue, parseError error) {
 		panic(err)
 	}
 
-	p.input, err = guessEncodingAndConvert(buffer)
+	p.rawBytesOffset, p.input, err = guessEncodingAndConvert(buffer)
 	if err != nil {
 		panic(err)
 	}
@@ -321,6 +336,10 @@ func (p *textPlistParser) parseUnquotedString() cfString {
 
 // the { has already been consumed
 func (p *textPlistParser) parseDictionary(ignoreEof bool) cfValue {
+	startPos := p.pos
+	if startPos > 0 {
+		startPos = startPos - 1 // to include the starting '{'
+	}
 	//p.ignore() // ignore the {
 	var keypv cfValue
 	keys := make([]string, 0, 32)
@@ -374,7 +393,46 @@ outer:
 	}
 
 	dict := &cfDictionary{keys: keys, values: values}
-	return dict.maybeUID(p.format == OpenStepFormat)
+	maybeUIDVal := dict.maybeUID(p.format == OpenStepFormat)
+	// If the content was converted (from UTF-16) then can not return the raw byte offsets
+	if !p.useCustomAnnotations || p.rawBytesOffset == -1 {
+		return maybeUIDVal
+	}
+	// Not annotating if it is an UID
+	_, ok := maybeUIDVal.(*cfDictionary)
+	if !ok {
+		return maybeUIDVal
+	}
+	// Prevent breaking tests with empty key or when the dictionary is legacy string list type
+	if len(keys) == 1 && keys[0] == "" || p.input[startPos] != '{' {
+		return maybeUIDVal
+	}
+
+	r := regexp.MustCompile("[^A-Za-z0-9_-]")
+	foundFunnyChars := false
+	for _, k := range keys {
+		if res := r.Find([]byte(k)); res != nil {
+			foundFunnyChars = true
+			break
+		}
+	}
+	if foundFunnyChars {
+		return maybeUIDVal
+	}
+
+	// Save the start and end position of the dictionary in a custom key in the dictionary
+	// This allows to modify only the changed part of the file
+	endPos := p.pos
+	keys = append(keys, CustomAnnotationKey)
+	values = append(values, &cfDictionary{
+		keys: []string{CustomAnnotationStartKey, CustomAnnotationEndKey},
+		values: []cfValue{
+			&cfNumber{value: uint64(startPos + p.rawBytesOffset), signed: true},
+			&cfNumber{value: uint64(endPos + p.rawBytesOffset), signed: true},
+		},
+	})
+
+	return &cfDictionary{keys: keys, values: values}
 }
 
 // the ( has already been consumed
@@ -576,5 +634,13 @@ func newTextPlistParser(r io.Reader) *textPlistParser {
 	return &textPlistParser{
 		reader: r,
 		format: OpenStepFormat,
+	}
+}
+
+func newTextPlistParserWithCustomAnnotations(r io.Reader) *textPlistParser {
+	return &textPlistParser{
+		reader:               r,
+		format:               OpenStepFormat,
+		useCustomAnnotations: true,
 	}
 }
