@@ -146,8 +146,8 @@ func (p *xmlPlistParser) parseXMLElement(element xml.StartElement) cfValue {
 	case "dict":
 		p.ntags++
 		var key *string
-		keys := make([]string, 0, 32)
-		values := make([]cfValue, 0, 32)
+		var keys []string
+		var values []cfValue
 		for {
 			token, err := p.xmlDecoder.Token()
 			if err != nil {
@@ -181,7 +181,7 @@ func (p *xmlPlistParser) parseXMLElement(element xml.StartElement) cfValue {
 		return dict.maybeUID(false)
 	case "array":
 		p.ntags++
-		values := make([]cfValue, 0, 10)
+		var values []cfValue
 		for {
 			token, err := p.xmlDecoder.Token()
 			if err != nil {

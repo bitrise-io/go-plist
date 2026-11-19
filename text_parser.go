@@ -342,8 +342,8 @@ func (p *textPlistParser) parseDictionary(ignoreEof bool) cfValue {
 	}
 	//p.ignore() // ignore the {
 	var keypv cfValue
-	keys := make([]string, 0, 32)
-	values := make([]cfValue, 0, 32)
+	var keys []string
+	var values []cfValue
 outer:
 	for {
 		p.skipWhitespaceAndComments()
@@ -438,7 +438,7 @@ outer:
 // the ( has already been consumed
 func (p *textPlistParser) parseArray() *cfArray {
 	//p.ignore() // ignore the (
-	values := make([]cfValue, 0, 32)
+	var values []cfValue
 outer:
 	for {
 		p.skipWhitespaceAndComments()
@@ -560,7 +560,7 @@ func (p *textPlistParser) parseGNUStepBase64() cfData {
 
 // The < has already been consumed
 func (p *textPlistParser) parseHexData() cfData {
-	buf := make([]byte, 256)
+	buf := make([]byte, 16)
 	i := 0
 	c := 0
 
