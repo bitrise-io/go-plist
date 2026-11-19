@@ -299,7 +299,7 @@ func (p *textPlistParser) parseQuotedString() cfString {
 	p.ignore() // ignore the "
 
 	slowPath := false
-	s := ""
+	var s strings.Builder
 
 	for {
 		p.scanUntilAny(`"\`)
@@ -312,14 +312,14 @@ func (p *textPlistParser) parseQuotedString() cfString {
 			if !slowPath {
 				return cfString(section)
 			} else {
-				s += section
-				return cfString(s)
+				s.WriteString(section)
+				return cfString(s.String())
 			}
 		case '\\':
 			slowPath = true
-			s += p.emit()
+			s.WriteString(p.emit())
 			p.next() // consume \
-			s += p.parseEscape()
+			s.WriteString(p.parseEscape())
 		}
 	}
 }
