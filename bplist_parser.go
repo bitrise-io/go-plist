@@ -32,6 +32,8 @@ type bplistParser struct {
 
 	// collections referenced more than once
 	shared map[cfValue]interface{}
+
+	consumed uint64 // bytes of object contents decoded so far
 }
 
 func (p *bplistParser) validateDocumentTrailer() {
@@ -183,6 +185,16 @@ func (p *bplistParser) objectAtIndex(index uint64) cfValue {
 
 }
 
+// consume accounts for decoding n bytes of object contents.
+// Objects that overlap, or object IDs that share an offset, would otherwise
+// have a small document decoded into values many times its size.
+func (p *bplistParser) consume(n uint64) {
+	p.consumed += n
+	if p.consumed > p.trailer.OffsetTableOffset {
+		panic(errors.New("objects are larger than the object table"))
+	}
+}
+
 func (p *bplistParser) pushNestedObject(off offset) {
 	for _, v := range p.containerStack {
 		if v == off {
@@ -291,6 +303,7 @@ func (p *bplistParser) parseDataAtOffset(off offset) []byte {
 	if start+offset(len) > offset(p.trailer.OffsetTableOffset) {
 		panic(fmt.Errorf("data@0x%x too long (%v bytes, max is %v)", off, len, p.trailer.OffsetTableOffset-uint64(start)))
 	}
+	p.consume(len)
 	return p.buffer[start : start+offset(len)]
 }
 
@@ -299,6 +312,7 @@ func (p *bplistParser) parseASCIIStringAtOffset(off offset) string {
 	if start+offset(len) > offset(p.trailer.OffsetTableOffset) {
 		panic(fmt.Errorf("ascii string@0x%x too long (%v bytes, max is %v)", off, len, p.trailer.OffsetTableOffset-uint64(start)))
 	}
+	p.consume(len)
 
 	return zeroCopy8BitString(p.buffer, int(start), int(len))
 }
@@ -310,6 +324,7 @@ func (p *bplistParser) parseUTF16StringAtOffset(off offset) string {
 		panic(fmt.Errorf("utf16 string@0x%x too long (%v bytes, max is %v)", off, bytes, p.trailer.OffsetTableOffset-uint64(start)))
 	}
 
+	p.consume(bytes)
 	u16s := make([]uint16, len)
 	for i := offset(0); i < offset(len); i++ {
 		u16s[i] = binary.BigEndian.Uint16(p.buffer[start+(i*2):])
@@ -322,6 +337,7 @@ func (p *bplistParser) parseObjectListAtOffset(off offset, count uint64) []cfVal
 	if off+offset(count*uint64(p.trailer.ObjectRefSize)) > offset(p.trailer.OffsetTableOffset) {
 		panic(fmt.Errorf("list@0x%x length (%v) puts its end beyond the offset table at 0x%x", off, count, p.trailer.OffsetTableOffset))
 	}
+	p.consume(count * uint64(p.trailer.ObjectRefSize))
 	objects := make([]cfValue, count)
 
 	next := off
