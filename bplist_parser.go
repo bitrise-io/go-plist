@@ -29,6 +29,9 @@ type bplistParser struct {
 	trailerOffset uint64
 
 	containerStack []offset // slice of object offsets; manipulated during container deserialization
+
+	// collections referenced more than once
+	shared map[cfValue]interface{}
 }
 
 func (p *bplistParser) validateDocumentTrailer() {
@@ -159,6 +162,10 @@ func (p *bplistParser) objectAtIndex(index uint64) cfValue {
 	}
 
 	if pval := p.objects[index]; pval != nil {
+		switch pval.(type) {
+		case *cfArray, *cfDictionary:
+			p.shared[pval] = nil
+		}
 		return pval
 	}
 
@@ -357,5 +364,5 @@ func (p *bplistParser) parseArrayAtOffset(off offset) *cfArray {
 }
 
 func newBplistParser(r io.ReadSeeker) *bplistParser {
-	return &bplistParser{reader: r}
+	return &bplistParser{reader: r, shared: make(map[cfValue]interface{})}
 }
