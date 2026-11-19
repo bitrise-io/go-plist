@@ -25,6 +25,8 @@ type bplistParser struct {
 	reader        io.ReadSeeker
 	version       int
 	objects       []cfValue // object ID to object
+	heights       []int     // object ID to how many levels of collections the object nests, itself included
+	height        int       // that number for the object parsed last
 	trailer       bplistTrailer
 	trailerOffset uint64
 
@@ -115,6 +117,7 @@ func (p *bplistParser) parseDocument() (pval cfValue, parseError error) {
 	// - Top object is in range
 
 	p.objects = make([]cfValue, p.trailer.NumObjects)
+	p.heights = make([]int, p.trailer.NumObjects)
 
 	pval = p.objectAtIndex(p.trailer.TopObject)
 	return
@@ -171,6 +174,10 @@ func (p *bplistParser) objectAtIndex(index uint64) cfValue {
 		case *cfArray, *cfDictionary:
 			p.shared[pval] = nil
 		}
+		// It is not parsed again, but it nests as deep here as where it was parsed.
+		if len(p.containerStack)+p.heights[index] > maxCollectionDepth {
+			panic(errCollectionDepth)
+		}
 		return pval
 	}
 
@@ -179,8 +186,10 @@ func (p *bplistParser) objectAtIndex(index uint64) cfValue {
 		panic(fmt.Errorf("object#%d starts beyond beginning of object table (0x%x, table@0x%x)", index, off, p.trailer.OffsetTableOffset))
 	}
 
+	p.height = 0
 	pval := p.parseTagAtOffset(off)
 	p.objects[index] = pval
+	p.heights[index] = p.height
 	return pval
 
 }
@@ -345,11 +354,16 @@ func (p *bplistParser) parseObjectListAtOffset(off offset, count uint64) []cfVal
 
 	next := off
 	var oid uint64
+	height := 0
 	for i := uint64(0); i < count; i++ {
 		oid, next = p.parseObjectRefAtOffset(next)
 		objects[i] = p.objectAtIndex(oid)
+		if p.heights[oid] > height {
+			height = p.heights[oid]
+		}
 	}
 
+	p.height = height + 1
 	return objects
 }
 

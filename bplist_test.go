@@ -209,3 +209,32 @@ func TestBplistSharedArrays(t *testing.T) {
 		decoded = array[13]
 	}
 }
+
+func TestBplistSharedArrayNestingDepth(t *testing.T) {
+	// Array 0 is empty, array i holds array i-1, and the top array holds them all in that order.
+	// The parser finds each of them already parsed, and never has more than three arrays open.
+	for _, count := range []int{maxCollectionDepth - 2, maxCollectionDepth - 1} {
+		var data bytes.Buffer
+		data.WriteString("bplist00\xA0")
+		offsets := []uint16{8}
+		top := []uint16{0xAF11, uint16(count)}
+		for id := 1; id <= count; id++ {
+			offsets = append(offsets, uint16(data.Len()))
+			data.WriteByte(0xA1)
+			binary.Write(&data, binary.BigEndian, uint16(id-1))
+			top = append(top, uint16(id))
+		}
+		offsets = append(offsets, uint16(data.Len()))
+		binary.Write(&data, binary.BigEndian, top)
+		table := data.Len()
+		binary.Write(&data, binary.BigEndian, offsets)
+		binary.Write(&data, binary.BigEndian, []uint64{2<<8 | 2, uint64(count + 2), uint64(count + 1), uint64(table)})
+
+		// The top array nests count+2 arrays.
+		var decoded interface{}
+		_, err := Unmarshal(data.Bytes(), &decoded)
+		if wantErr := count+2 > maxCollectionDepth; (err != nil) != wantErr {
+			t.Errorf("%d nested arrays: wanted error: %v, received: %v", count+2, wantErr, err)
+		}
+	}
+}
