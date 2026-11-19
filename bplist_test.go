@@ -176,3 +176,36 @@ func TestBplistNonPowerOfTwoOffsetIntSizes(t *testing.T) {
 		t.Error("Unexpected error", err)
 	}
 }
+
+func TestBplistSharedArrays(t *testing.T) {
+	// Five arrays: an empty one, then four that each hold 14 references to the one before.
+	data := []byte("bplist00\xA0")
+	offsets := []byte{8}
+	for id := byte(0); id < 4; id++ {
+		offsets = append(offsets, byte(len(data)))
+		data = append(data, 0xAE)
+		data = append(data, bytes.Repeat([]byte{id}, 14)...)
+	}
+	table := byte(len(data))
+	data = append(data, offsets...)
+	data = append(data, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, table)
+
+	var decoded interface{}
+	allocs := testing.AllocsPerRun(1, func() {
+		if _, err := Unmarshal(data, &decoded); err != nil {
+			t.Fatal(err)
+		}
+	})
+	// Decoding each array once per reference takes over 14^4 allocations.
+	if allocs > 1000 {
+		t.Errorf("decoding %d bytes took %v allocations", len(data), allocs)
+	}
+
+	for level := 0; level < 4; level++ {
+		array, _ := decoded.([]interface{})
+		if len(array) != 14 {
+			t.Fatalf("level %d: wanted an array of 14 values, received %v", level, decoded)
+		}
+		decoded = array[13]
+	}
+}

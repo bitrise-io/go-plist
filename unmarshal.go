@@ -330,18 +330,34 @@ func (p *Decoder) valueInterface(pval cfValue) interface{} {
 }
 
 func (p *Decoder) arrayInterface(a *cfArray) []interface{} {
+	if out, ok := p.shared[a].([]interface{}); ok {
+		return out
+	}
+
 	out := make([]interface{}, len(a.values))
 	for i, subv := range a.values {
 		out[i] = p.valueInterface(subv)
+	}
+
+	if _, ok := p.shared[a]; ok {
+		p.shared[a] = out
 	}
 	return out
 }
 
 func (p *Decoder) dictionaryInterface(dict *cfDictionary) map[string]interface{} {
+	if out, ok := p.shared[dict].(map[string]interface{}); ok {
+		return out
+	}
+
 	out := make(map[string]interface{})
 	for i, k := range dict.keys {
 		subv := dict.values[i]
 		out[k] = p.valueInterface(subv)
+	}
+
+	if _, ok := p.shared[dict]; ok {
+		p.shared[dict] = out
 	}
 	return out
 }
