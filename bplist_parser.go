@@ -194,7 +194,7 @@ func (p *bplistParser) objectAtIndex(index uint64) cfValue {
 
 }
 
-// consume accounts for decoding n bytes of object contents.
+// consume accounts for n bytes of object contents that decoding copies out of the document.
 // Objects that overlap, or object IDs that share an offset, would otherwise
 // have a small document decoded into values many times its size.
 func (p *bplistParser) consume(n uint64) {
@@ -315,7 +315,6 @@ func (p *bplistParser) parseDataAtOffset(off offset) []byte {
 	if start+offset(len) > offset(p.trailer.OffsetTableOffset) {
 		panic(fmt.Errorf("data@0x%x too long (%v bytes, max is %v)", off, len, p.trailer.OffsetTableOffset-uint64(start)))
 	}
-	p.consume(len)
 	return p.buffer[start : start+offset(len)]
 }
 
