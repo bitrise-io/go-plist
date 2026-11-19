@@ -193,6 +193,9 @@ func (p *bplistParser) consume(n uint64) {
 }
 
 func (p *bplistParser) pushNestedObject(off offset) {
+	if len(p.containerStack) >= maxCollectionDepth {
+		panic(errCollectionDepth)
+	}
 	for _, v := range p.containerStack {
 		if v == off {
 			p.panicNestedObject(off)

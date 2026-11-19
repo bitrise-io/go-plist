@@ -279,3 +279,29 @@ func ExampleDecoder_Decode() {
 
 	// Output: {6.0 8388608 1 com.apple.diskimage.sparsebundle 4398046511104}
 }
+
+func TestDecodeNestingDepth(t *testing.T) {
+	for _, format := range []int{XMLFormat, BinaryFormat, OpenStepFormat} {
+		for _, depth := range []int{maxCollectionDepth, maxCollectionDepth + 1} {
+			// Arrays and dictionaries take turns.
+			var val interface{} = "a"
+			for i := 0; i < depth; i++ {
+				if i%2 == 0 {
+					val = []interface{}{val}
+				} else {
+					val = map[string]interface{}{"a": val}
+				}
+			}
+			data, err := Marshal(val, format)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var decoded interface{}
+			_, err = Unmarshal(data, &decoded)
+			if wantErr := depth > maxCollectionDepth; (err != nil) != wantErr {
+				t.Errorf("%s, %d nested collections: wanted error: %v, received: %v", FormatNames[format], depth, wantErr, err)
+			}
+		}
+	}
+}

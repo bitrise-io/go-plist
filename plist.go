@@ -1,6 +1,7 @@
 package plist
 
 import (
+	"fmt"
 	"reflect"
 )
 
@@ -81,3 +82,9 @@ type Marshaler interface {
 type Unmarshaler interface {
 	UnmarshalPlist(unmarshal func(interface{}) error) error
 }
+
+// maxCollectionDepth is how many arrays and dictionaries a property list can nest in each other.
+// CoreFoundation's parsers do not go deeper either.
+const maxCollectionDepth = 512
+
+var errCollectionDepth = fmt.Errorf("arrays and dictionaries are nested more than %d levels deep", maxCollectionDepth)
