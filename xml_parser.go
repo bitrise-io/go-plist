@@ -52,12 +52,11 @@ func (p *xmlPlistParser) parseDocument() (pval cfValue, parseError error) {
 
 func (p *xmlPlistParser) parseXMLElement(element xml.StartElement) cfValue {
 	var charData xml.CharData
-	switch element.Name.Local {
-	case "plist", "dict", "array":
+	// A plist element is not a collection, but one inside another is parsed like one.
+	if name := element.Name.Local; name == "dict" || name == "array" || name == "plist" && p.ntags > 0 {
 		p.depth++
 		defer func() { p.depth-- }()
-		// The plist element around the collections takes a level too.
-		if p.depth > maxCollectionDepth+1 {
+		if p.depth > maxCollectionDepth {
 			panic(errCollectionDepth)
 		}
 	}
