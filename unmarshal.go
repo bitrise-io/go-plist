@@ -204,10 +204,43 @@ func (p *Decoder) unmarshal(pval cfValue, val reflect.Value) {
 				panic(incompatibleTypeError)
 			}
 		}
+	case *cfArray, *cfDictionary:
+		p.unmarshalCollection(pval, val)
+	}
+}
+
+// sharedKey identifies the decoding of a shared collection into one Go type.
+type sharedKey struct {
+	pval cfValue
+	typ  reflect.Type
+}
+
+// unmarshalCollection decodes an array or dictionary into val. A collection that the property list references more
+// than once is decoded once for each type of val: the references then hold the same slice or map, or copies of the
+// same struct or array. Decoding it once per reference would let a small document expand into a very large value.
+func (p *Decoder) unmarshalCollection(pval cfValue, val reflect.Value) {
+	key := sharedKey{pval, val.Type()}
+	// A value that the caller has filled in is added to, so it cannot be shared.
+	_, shared := p.shared[pval]
+	shared = shared && val.IsZero()
+	if decoded, ok := p.typed[key]; ok && shared {
+		val.Set(reflect.ValueOf(decoded))
+		return
+	}
+
+	switch pval := pval.(type) {
 	case *cfArray:
 		p.unmarshalArray(pval, val)
 	case *cfDictionary:
 		p.unmarshalDictionary(pval, val)
+	}
+
+	if shared {
+		if val.Kind() == reflect.Slice {
+			// Without spare capacity, appending to one reference cannot write into another.
+			val.Set(val.Slice3(0, val.Len(), val.Len()))
+		}
+		p.typed[key] = val.Interface()
 	}
 }
 
@@ -314,18 +347,34 @@ func (p *Decoder) valueInterface(pval cfValue) interface{} {
 }
 
 func (p *Decoder) arrayInterface(a *cfArray) []interface{} {
+	if out, ok := p.shared[a].([]interface{}); ok {
+		return out
+	}
+
 	out := make([]interface{}, len(a.values))
 	for i, subv := range a.values {
 		out[i] = p.valueInterface(subv)
+	}
+
+	if _, ok := p.shared[a]; ok {
+		p.shared[a] = out
 	}
 	return out
 }
 
 func (p *Decoder) dictionaryInterface(dict *cfDictionary) map[string]interface{} {
+	if out, ok := p.shared[dict].(map[string]interface{}); ok {
+		return out
+	}
+
 	out := make(map[string]interface{})
 	for i, k := range dict.keys {
 		subv := dict.values[i]
 		out[k] = p.valueInterface(subv)
+	}
+
+	if _, ok := p.shared[dict]; ok {
+		p.shared[dict] = out
 	}
 	return out
 }

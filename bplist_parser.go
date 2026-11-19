@@ -25,10 +25,17 @@ type bplistParser struct {
 	reader        io.ReadSeeker
 	version       int
 	objects       []cfValue // object ID to object
+	heights       []int     // object ID to how many levels of collections the object nests, itself included
+	height        int       // that number for the object parsed last
 	trailer       bplistTrailer
 	trailerOffset uint64
 
 	containerStack []offset // slice of object offsets; manipulated during container deserialization
+
+	// collections referenced more than once
+	shared map[cfValue]interface{}
+
+	consumed uint64 // bytes of object contents decoded so far
 }
 
 func (p *bplistParser) validateDocumentTrailer() {
@@ -110,6 +117,7 @@ func (p *bplistParser) parseDocument() (pval cfValue, parseError error) {
 	// - Top object is in range
 
 	p.objects = make([]cfValue, p.trailer.NumObjects)
+	p.heights = make([]int, p.trailer.NumObjects)
 
 	pval = p.objectAtIndex(p.trailer.TopObject)
 	return
@@ -159,6 +167,14 @@ func (p *bplistParser) objectAtIndex(index uint64) cfValue {
 	}
 
 	if pval := p.objects[index]; pval != nil {
+		switch pval.(type) {
+		case *cfArray, *cfDictionary:
+			p.shared[pval] = nil
+		}
+		// It is not parsed again, but it nests as deep here as where it was parsed.
+		if len(p.containerStack)+p.heights[index] > maxCollectionDepth {
+			panic(errCollectionDepth)
+		}
 		return pval
 	}
 
@@ -167,13 +183,28 @@ func (p *bplistParser) objectAtIndex(index uint64) cfValue {
 		panic(fmt.Errorf("object#%d starts beyond beginning of object table (0x%x, table@0x%x)", index, off, p.trailer.OffsetTableOffset))
 	}
 
+	p.height = 0
 	pval := p.parseTagAtOffset(off)
 	p.objects[index] = pval
+	p.heights[index] = p.height
 	return pval
 
 }
 
+// consume accounts for n bytes of object contents that decoding copies out of the document.
+// Objects that overlap, or object IDs that share an offset, would otherwise
+// have a small document decoded into values many times its size.
+func (p *bplistParser) consume(n uint64) {
+	p.consumed += n
+	if p.consumed > p.trailer.OffsetTableOffset {
+		panic(errors.New("objects are larger than the object table"))
+	}
+}
+
 func (p *bplistParser) pushNestedObject(off offset) {
+	if len(p.containerStack) >= maxCollectionDepth {
+		panic(errCollectionDepth)
+	}
 	for _, v := range p.containerStack {
 		if v == off {
 			p.panicNestedObject(off)
@@ -263,6 +294,14 @@ func (p *bplistParser) countForTagAtOffset(off offset) (uint64, offset) {
 	cnt := uint64(tag & 0x0F)
 	if cnt == 0xF {
 		cnt, _, off = p.parseIntegerAtOffset(off + 1)
+		// An object's element or byte count can never exceed the number of
+		// bytes that precede the offset table. Reject oversized counts here so
+		// that a malformed document can't overflow the length arithmetic in
+		// our callers (start+len, len*2, count*objectRefSize), which would
+		// otherwise slip past their bounds checks and panic in make/slicing.
+		if cnt > p.trailer.OffsetTableOffset {
+			panic(fmt.Errorf("object@0x%x has an invalid length (%v, max is %v)", off, cnt, p.trailer.OffsetTableOffset))
+		}
 		return cnt, off
 	}
 	return cnt, off + 1
@@ -281,6 +320,7 @@ func (p *bplistParser) parseASCIIStringAtOffset(off offset) string {
 	if start+offset(len) > offset(p.trailer.OffsetTableOffset) {
 		panic(fmt.Errorf("ascii string@0x%x too long (%v bytes, max is %v)", off, len, p.trailer.OffsetTableOffset-uint64(start)))
 	}
+	p.consume(len)
 
 	return zeroCopy8BitString(p.buffer, int(start), int(len))
 }
@@ -292,6 +332,7 @@ func (p *bplistParser) parseUTF16StringAtOffset(off offset) string {
 		panic(fmt.Errorf("utf16 string@0x%x too long (%v bytes, max is %v)", off, bytes, p.trailer.OffsetTableOffset-uint64(start)))
 	}
 
+	p.consume(bytes)
 	u16s := make([]uint16, len)
 	for i := offset(0); i < offset(len); i++ {
 		u16s[i] = binary.BigEndian.Uint16(p.buffer[start+(i*2):])
@@ -304,15 +345,21 @@ func (p *bplistParser) parseObjectListAtOffset(off offset, count uint64) []cfVal
 	if off+offset(count*uint64(p.trailer.ObjectRefSize)) > offset(p.trailer.OffsetTableOffset) {
 		panic(fmt.Errorf("list@0x%x length (%v) puts its end beyond the offset table at 0x%x", off, count, p.trailer.OffsetTableOffset))
 	}
+	p.consume(count * uint64(p.trailer.ObjectRefSize))
 	objects := make([]cfValue, count)
 
 	next := off
 	var oid uint64
+	height := 0
 	for i := uint64(0); i < count; i++ {
 		oid, next = p.parseObjectRefAtOffset(next)
 		objects[i] = p.objectAtIndex(oid)
+		if p.heights[oid] > height {
+			height = p.heights[oid]
+		}
 	}
 
+	p.height = height + 1
 	return objects
 }
 
@@ -349,5 +396,5 @@ func (p *bplistParser) parseArrayAtOffset(off offset) *cfArray {
 }
 
 func newBplistParser(r io.ReadSeeker) *bplistParser {
-	return &bplistParser{reader: r}
+	return &bplistParser{reader: r, shared: make(map[cfValue]interface{})}
 }

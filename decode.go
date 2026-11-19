@@ -19,6 +19,11 @@ type Decoder struct {
 	reader               io.ReadSeeker
 	lax                  bool
 	addCustomAnnotations bool
+
+	// The collections a binary property list references more than once, each mapped to its interface value once decoded.
+	// Decoding them once per reference would let a small document expand into an exponentially large value.
+	shared map[cfValue]interface{}
+	typed  map[sharedKey]interface{} // the same for values of other types
 }
 
 // Decode works like Unmarshal, except it reads the decoder stream to find property list elements.
@@ -32,6 +37,7 @@ func (p *Decoder) Decode(v interface{}) (err error) {
 			}
 			err = r.(error)
 		}
+		p.shared, p.typed = nil, nil
 	}()
 
 	header := make([]byte, 6)
@@ -41,13 +47,14 @@ func (p *Decoder) Decode(v interface{}) (err error) {
 	var parser parser
 	var pval cfValue
 	if bytes.Equal(header, []byte("bplist")) {
-		parser = newBplistParser(p.reader)
-		pval, err = parser.parseDocument()
+		bp := newBplistParser(p.reader)
+		pval, err = bp.parseDocument()
 		if err != nil {
 			// Had a bplist header, but still got an error: we have to die here.
 			return err
 		}
 		p.Format = BinaryFormat
+		p.shared, p.typed = bp.shared, make(map[sharedKey]interface{})
 	} else {
 		parser = newXMLPlistParser(p.reader)
 		pval, err = parser.parseDocument()
@@ -106,6 +113,9 @@ func newCustomAnnotationDecoder(r io.ReadSeeker) *Decoder {
 //     []byte, for plist data
 //     []interface{}, for plist arrays
 //     map[string]interface{}, for plist dictionaries
+//
+// An array or dictionary that a binary property list references more than once is decoded once for each Go type it is
+// decoded into. Its references then hold the same slice or map.
 //
 // If a property list value is not appropriate for a given value type, Unmarshal aborts immediately and returns an error.
 //
