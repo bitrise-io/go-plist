@@ -190,10 +190,15 @@ func TestBplistSharedArrays(t *testing.T) {
 	data = append(data, offsets...)
 	data = append(data, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, table)
 
+	type arrays []arrays
 	var decoded interface{}
+	var typed arrays
 	allocs := testing.AllocsPerRun(1, func() {
-		if _, err := Unmarshal(data, &decoded); err != nil {
-			t.Fatal(err)
+		decoded, typed = nil, nil
+		for _, v := range []interface{}{&decoded, &typed} {
+			if _, err := Unmarshal(data, v); err != nil {
+				t.Fatal(err)
+			}
 		}
 	})
 	// Decoding each array once per reference takes over 14^4 allocations.
@@ -203,10 +208,10 @@ func TestBplistSharedArrays(t *testing.T) {
 
 	for level := 0; level < 4; level++ {
 		array, _ := decoded.([]interface{})
-		if len(array) != 14 {
-			t.Fatalf("level %d: wanted an array of 14 values, received %v", level, decoded)
+		if len(array) != 14 || len(typed) != 14 {
+			t.Fatalf("level %d: wanted arrays of 14 values, received %v and %v", level, decoded, typed)
 		}
-		decoded = array[13]
+		decoded, typed = array[13], typed[13]
 	}
 }
 
