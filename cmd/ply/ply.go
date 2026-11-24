@@ -16,7 +16,7 @@ import (
 
 	"github.com/bitrise-io/go-plist"
 	"github.com/jessevdk/go-flags"
-	"gopkg.in/yaml.v1"
+	"gopkg.in/yaml.v3"
 )
 
 //import "github.com/mgutz/ansi"

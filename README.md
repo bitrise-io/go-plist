@@ -1,4 +1,4 @@
-# plist - A pure Go property list transcoder [![coverage report](https://gitlab.howett.net/go/plist/badges/master/coverage.svg)](https://gitlab.howett.net/go/plist/commits/master)
+# plist - A pure Go property list transcoder
 ## INSTALL
 ```
 $ go get howett.net/plist

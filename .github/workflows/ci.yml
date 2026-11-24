@@ -1,16 +1,31 @@
 name: ci
 on: [push, pull_request]
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        strategy:
-            matrix:
-                go: [ '1.13' ]
-        name: Build and Test (Go ${{ matrix.go }})
-        steps:
-            - uses: actions/checkout@v2
-            - name: Set up Go
-              uses: actions/setup-go@v1
-              with:
-                  go-version: ${{ matrix.go }}
-            - run: go test
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [ '1.2', '1.14', 'stable' ]
+        tag: [ 'default', 'appengine' ]
+        exclude:
+          - { go: '1.2', tag: 'appengine' }
+          - { go: '1.14', tag: 'appengine' }
+    name: Build and Test (Go ${{ matrix.go }} ${{ matrix.tag }})
+    env:
+      GOPATH: ${{ github.workspace }}/go
+      GO_PACKAGE: howett.net/plist
+      RUNNER_TOOL_CACHE: /toolcache
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: 'go.sum'
+      # Earlier versions of go, such as 1.2, do not support running from the module root
+      - run: |-
+          mkdir -p $(dirname $GOPATH/src/$GO_PACKAGE);
+          ln -s $(pwd) $GOPATH/src/$GO_PACKAGE;
+        name: Prepare GOPATH
+      - run: go test -cover -tags ${{ matrix.tag }}
+        name: Test
+        working-directory: ${{env.GOPATH}}/src/${{env.GO_PACKAGE}}
