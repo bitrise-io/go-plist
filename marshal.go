@@ -61,8 +61,12 @@ func (p *Encoder) marshalStruct(typ reflect.Type, val reflect.Value) cfValue {
 		if !value.IsValid() {
 			continue
 		}
+		subpval := p.marshal(value)
+		if subpval == nil {
+			continue
+		}
 		dict.keys = append(dict.keys, finfo.name)
-		dict.values = append(dict.values, p.marshal(value))
+		dict.values = append(dict.values, subpval)
 	}
 
 	return dict
@@ -155,10 +159,10 @@ func (p *Encoder) marshal(val reflect.Value) cfValue {
 			}
 			return cfData(bytes)
 		} else {
-			values := make([]cfValue, val.Len())
+			values := make([]cfValue, 0, val.Len())
 			for i, length := 0, val.Len(); i < length; i++ {
 				if subpval := p.marshal(val.Index(i)); subpval != nil {
-					values[i] = subpval
+					values = append(values, subpval)
 				}
 			}
 			return &cfArray{values}

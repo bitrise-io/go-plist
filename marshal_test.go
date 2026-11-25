@@ -119,6 +119,37 @@ func TestMarshalNilPointerInInterface(t *testing.T) {
 	}
 }
 
+func TestMarshalNilPointerInStructAndSlice(t *testing.T) {
+	type X struct {
+		C interface{}
+		S string
+	}
+	tests := []struct {
+		Name  string
+		Thing interface{}
+		Want  string
+	}{
+		{"Struct field", &X{C: (*Cat)(nil), S: "s"}, `{S=s;}`},
+		{"Slice element", []interface{}{"a", (*Dog)(nil), (*time.Time)(nil), "b"}, `(a,b,)`},
+	}
+
+	for _, tt := range tests {
+		subtest(t, tt.Name, func(t *testing.T) {
+			b, err := Marshal(tt.Thing, OpenStepFormat)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(b) != tt.Want {
+				t.Errorf("wanted %s, received %s", tt.Want, b)
+			}
+
+			if _, err := Marshal(tt.Thing, BinaryFormat); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
 func TestMarshalInterfaceFieldPtrTime(t *testing.T) {
 	type X struct {
 		C interface{} // C's type is unknown
