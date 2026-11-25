@@ -104,6 +104,33 @@ func TestInterfaceFieldMarshal(t *testing.T) {
 	}
 }
 
+func TestMarshalNilPointerInInterface(t *testing.T) {
+	x := map[string]interface{}{
+		"cat":  (*Cat)(nil),
+		"date": (*time.Time)(nil),
+	}
+
+	b, err := Marshal(x, GNUStepFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "{}" {
+		t.Errorf("wanted {}, received %s", b)
+	}
+}
+
+func TestMarshalPointerToMarshalerPointer(t *testing.T) {
+	c := &Cat{}
+
+	b, err := Marshal(&c, GNUStepFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "cat" {
+		t.Errorf("wanted cat, received %s", b)
+	}
+}
+
 func TestMarshalInterfaceFieldPtrTime(t *testing.T) {
 	type X struct {
 		C interface{} // C's type is unknown
