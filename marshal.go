@@ -85,8 +85,8 @@ func (p *Encoder) marshal(val reflect.Value) cfValue {
 		return nil
 	}
 
-	// A nil pointer held by a pointer or an empty interface marshals to nothing; its marshaler is not called on nil.
-	if val.Kind() == reflect.Ptr || (val.Kind() == reflect.Interface && val.NumMethod() == 0) {
+	// An empty interface holding a nil pointer marshals to nothing; its marshaler is not called on nil.
+	if val.Kind() == reflect.Interface && val.NumMethod() == 0 {
 		if elem := val.Elem(); elem.Kind() == reflect.Ptr && elem.IsNil() {
 			return nil
 		}
@@ -112,13 +112,11 @@ func (p *Encoder) marshal(val reflect.Value) cfValue {
 		return p.marshalTextInterface(receiver.(encoding.TextMarshaler))
 	}
 
-	// Descend one level at a time, so that every pointed-to value is checked for a marshaler
-	if val.Kind() == reflect.Ptr || (val.Kind() == reflect.Interface && val.NumMethod() == 0) {
-		return p.marshal(val.Elem())
-	}
+	// Descend into pointers or interfaces
+	val = innermostValue(val)
 
-	// We got this far and still may have a nil interface
-	if val.Kind() == reflect.Interface && val.IsNil() {
+	// We got this far and still may have an invalid anything or nil ptr/interface
+	if !val.IsValid() || ((val.Kind() == reflect.Ptr || val.Kind() == reflect.Interface) && val.IsNil()) {
 		return nil
 	}
 
