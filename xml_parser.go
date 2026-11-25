@@ -16,6 +16,7 @@ type xmlPlistParser struct {
 	xmlDecoder         *xml.Decoder
 	whitespaceReplacer *strings.Replacer
 	ntags              int
+	depth              int
 }
 
 func (p *xmlPlistParser) parseDocument() (pval cfValue, parseError error) {
@@ -51,6 +52,15 @@ func (p *xmlPlistParser) parseDocument() (pval cfValue, parseError error) {
 
 func (p *xmlPlistParser) parseXMLElement(element xml.StartElement) cfValue {
 	var charData xml.CharData
+	// A plist element is not a collection, but one inside another is parsed like one.
+	if name := element.Name.Local; name == "dict" || name == "array" || name == "plist" && p.ntags > 0 {
+		p.depth++
+		defer func() { p.depth-- }()
+		if p.depth > maxCollectionDepth {
+			panic(errCollectionDepth)
+		}
+	}
+
 	switch element.Name.Local {
 	case "plist":
 		p.ntags++
@@ -146,8 +156,8 @@ func (p *xmlPlistParser) parseXMLElement(element xml.StartElement) cfValue {
 	case "dict":
 		p.ntags++
 		var key *string
-		keys := make([]string, 0, 32)
-		values := make([]cfValue, 0, 32)
+		var keys []string
+		var values []cfValue
 		for {
 			token, err := p.xmlDecoder.Token()
 			if err != nil {
@@ -181,7 +191,7 @@ func (p *xmlPlistParser) parseXMLElement(element xml.StartElement) cfValue {
 		return dict.maybeUID(false)
 	case "array":
 		p.ntags++
-		values := make([]cfValue, 0, 10)
+		var values []cfValue
 		for {
 			token, err := p.xmlDecoder.Token()
 			if err != nil {
@@ -207,5 +217,5 @@ func (p *xmlPlistParser) parseXMLElement(element xml.StartElement) cfValue {
 }
 
 func newXMLPlistParser(r io.Reader) *xmlPlistParser {
-	return &xmlPlistParser{r, xml.NewDecoder(r), strings.NewReplacer("\t", "", "\n", "", " ", "", "\r", ""), 0}
+	return &xmlPlistParser{r, xml.NewDecoder(r), strings.NewReplacer("\t", "", "\n", "", " ", "", "\r", ""), 0, 0}
 }

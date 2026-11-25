@@ -176,3 +176,94 @@ func TestBplistNonPowerOfTwoOffsetIntSizes(t *testing.T) {
 		t.Error("Unexpected error", err)
 	}
 }
+
+func TestBplistSharedArrays(t *testing.T) {
+	// Five arrays: an empty one, then four that each hold 14 references to the one before.
+	data := []byte("bplist00\xA0")
+	offsets := []byte{8}
+	for id := byte(0); id < 4; id++ {
+		offsets = append(offsets, byte(len(data)))
+		data = append(data, 0xAE)
+		data = append(data, bytes.Repeat([]byte{id}, 14)...)
+	}
+	table := byte(len(data))
+	data = append(data, offsets...)
+	data = append(data, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, table)
+
+	type arrays []arrays
+	var decoded interface{}
+	var typed arrays
+	allocs := testing.AllocsPerRun(1, func() {
+		decoded, typed = nil, nil
+		for _, v := range []interface{}{&decoded, &typed} {
+			if _, err := Unmarshal(data, v); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	// Decoding each array once per reference takes over 14^4 allocations.
+	if allocs > 1000 {
+		t.Errorf("decoding %d bytes took %v allocations", len(data), allocs)
+	}
+
+	for level := 0; level < 4; level++ {
+		array, _ := decoded.([]interface{})
+		if len(array) != 14 || len(typed) != 14 {
+			t.Fatalf("level %d: wanted arrays of 14 values, received %v and %v", level, decoded, typed)
+		}
+		decoded, typed = array[13], typed[13]
+	}
+}
+
+func TestBplistSharedString(t *testing.T) {
+	// An array of 14 object IDs whose offsets all point to the same 100-character string.
+	data := []byte("bplist00\xAE")
+	offsets := []byte{8}
+	for id := byte(1); id <= 14; id++ {
+		data = append(data, id)
+		offsets = append(offsets, 23)
+	}
+	data = append(data, "\x5F\x10\x64"...)
+	data = append(data, bytes.Repeat([]byte{'a'}, 100)...)
+	table := byte(len(data))
+	data = append(data, offsets...)
+	data = append(data, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, table)
+
+	var decoded []string
+	_, err := Unmarshal(data, &decoded)
+	switch {
+	case copies8BitStrings && err == nil:
+		t.Error("wanted an error, as each object ID copies the string")
+	case !copies8BitStrings && (err != nil || len(decoded) != 14):
+		t.Errorf("wanted 14 strings, received %v, error %v", decoded, err)
+	}
+}
+
+func TestBplistSharedArrayNestingDepth(t *testing.T) {
+	// Array 0 is empty, array i holds array i-1, and the top array holds them all in that order.
+	// The parser finds each of them already parsed, and never has more than three arrays open.
+	for _, count := range []int{maxCollectionDepth - 2, maxCollectionDepth - 1} {
+		var data bytes.Buffer
+		data.WriteString("bplist00\xA0")
+		offsets := []uint16{8}
+		top := []uint16{0xAF11, uint16(count)}
+		for id := 1; id <= count; id++ {
+			offsets = append(offsets, uint16(data.Len()))
+			data.WriteByte(0xA1)
+			binary.Write(&data, binary.BigEndian, uint16(id-1))
+			top = append(top, uint16(id))
+		}
+		offsets = append(offsets, uint16(data.Len()))
+		binary.Write(&data, binary.BigEndian, top)
+		table := data.Len()
+		binary.Write(&data, binary.BigEndian, offsets)
+		binary.Write(&data, binary.BigEndian, []uint64{2<<8 | 2, uint64(count + 2), uint64(count + 1), uint64(table)})
+
+		// The top array nests count+2 arrays.
+		var decoded interface{}
+		_, err := Unmarshal(data.Bytes(), &decoded)
+		if wantErr := count+2 > maxCollectionDepth; (err != nil) != wantErr {
+			t.Errorf("%d nested arrays: wanted error: %v, received: %v", count+2, wantErr, err)
+		}
+	}
+}

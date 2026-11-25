@@ -34,6 +34,7 @@ type textPlistParser struct {
 	start int
 	pos   int
 	width int
+	depth int
 
 	// Neeeded to access the raw byte offset, to modify content in-place
 	useCustomAnnotations bool
@@ -129,6 +130,13 @@ func (p *textPlistParser) error(e string, args ...interface{}) {
 	line := strings.Count(p.input[:p.pos], "\n")
 	char := p.pos - strings.LastIndex(p.input[:p.pos], "\n") - 1
 	panic(fmt.Errorf("%s at line %d character %d", fmt.Sprintf(e, args...), line, char))
+}
+
+func (p *textPlistParser) descend() {
+	p.depth++
+	if p.depth > maxCollectionDepth {
+		p.error("%v", errCollectionDepth)
+	}
 }
 
 func (p *textPlistParser) next() rune {
@@ -299,7 +307,7 @@ func (p *textPlistParser) parseQuotedString() cfString {
 	p.ignore() // ignore the "
 
 	slowPath := false
-	s := ""
+	var s strings.Builder
 
 	for {
 		p.scanUntilAny(`"\`)
@@ -312,14 +320,14 @@ func (p *textPlistParser) parseQuotedString() cfString {
 			if !slowPath {
 				return cfString(section)
 			} else {
-				s += section
-				return cfString(s)
+				s.WriteString(section)
+				return cfString(s.String())
 			}
 		case '\\':
 			slowPath = true
-			s += p.emit()
+			s.WriteString(p.emit())
 			p.next() // consume \
-			s += p.parseEscape()
+			s.WriteString(p.parseEscape())
 		}
 	}
 }
@@ -336,14 +344,17 @@ func (p *textPlistParser) parseUnquotedString() cfString {
 
 // the { has already been consumed
 func (p *textPlistParser) parseDictionary(ignoreEof bool) cfValue {
+	p.descend()
+	defer func() { p.depth-- }()
+
 	startPos := p.pos
 	if startPos > 0 {
 		startPos = startPos - 1 // to include the starting '{'
 	}
 	//p.ignore() // ignore the {
 	var keypv cfValue
-	keys := make([]string, 0, 32)
-	values := make([]cfValue, 0, 32)
+	var keys []string
+	var values []cfValue
 outer:
 	for {
 		p.skipWhitespaceAndComments()
@@ -437,8 +448,11 @@ outer:
 
 // the ( has already been consumed
 func (p *textPlistParser) parseArray() *cfArray {
+	p.descend()
+	defer func() { p.depth-- }()
+
 	//p.ignore() // ignore the (
-	values := make([]cfValue, 0, 32)
+	var values []cfValue
 outer:
 	for {
 		p.skipWhitespaceAndComments()
@@ -560,7 +574,7 @@ func (p *textPlistParser) parseGNUStepBase64() cfData {
 
 // The < has already been consumed
 func (p *textPlistParser) parseHexData() cfData {
-	buf := make([]byte, 256)
+	buf := make([]byte, 16)
 	i := 0
 	c := 0
 
