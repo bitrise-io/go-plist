@@ -215,6 +215,30 @@ func TestBplistSharedArrays(t *testing.T) {
 	}
 }
 
+func TestBplistSharedString(t *testing.T) {
+	// An array of 14 object IDs whose offsets all point to the same 100-character string.
+	data := []byte("bplist00\xAE")
+	offsets := []byte{8}
+	for id := byte(1); id <= 14; id++ {
+		data = append(data, id)
+		offsets = append(offsets, 23)
+	}
+	data = append(data, "\x5F\x10\x64"...)
+	data = append(data, bytes.Repeat([]byte{'a'}, 100)...)
+	table := byte(len(data))
+	data = append(data, offsets...)
+	data = append(data, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, table)
+
+	var decoded []string
+	_, err := Unmarshal(data, &decoded)
+	switch {
+	case copies8BitStrings && err == nil:
+		t.Error("wanted an error, as each object ID copies the string")
+	case !copies8BitStrings && (err != nil || len(decoded) != 14):
+		t.Errorf("wanted 14 strings, received %v, error %v", decoded, err)
+	}
+}
+
 func TestBplistSharedArrayNestingDepth(t *testing.T) {
 	// Array 0 is empty, array i holds array i-1, and the top array holds them all in that order.
 	// The parser finds each of them already parsed, and never has more than three arrays open.
