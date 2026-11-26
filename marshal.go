@@ -61,8 +61,12 @@ func (p *Encoder) marshalStruct(typ reflect.Type, val reflect.Value) cfValue {
 		if !value.IsValid() {
 			continue
 		}
+		subpval := p.marshal(value)
+		if subpval == nil {
+			continue
+		}
 		dict.keys = append(dict.keys, finfo.name)
-		dict.values = append(dict.values, p.marshal(value))
+		dict.values = append(dict.values, subpval)
 	}
 
 	return dict
@@ -83,6 +87,13 @@ func innermostValue(val reflect.Value) reflect.Value {
 func (p *Encoder) marshal(val reflect.Value) cfValue {
 	if !val.IsValid() {
 		return nil
+	}
+
+	// An empty interface holding a nil pointer marshals to nothing; its marshaler is not called on nil.
+	if val.Kind() == reflect.Interface && val.NumMethod() == 0 {
+		if elem := val.Elem(); elem.Kind() == reflect.Ptr && elem.IsNil() {
+			return nil
+		}
 	}
 
 	if receiver, can := implementsInterface(val, plistMarshalerType); can {
@@ -148,10 +159,10 @@ func (p *Encoder) marshal(val reflect.Value) cfValue {
 			}
 			return cfData(bytes)
 		} else {
-			values := make([]cfValue, val.Len())
+			values := make([]cfValue, 0, val.Len())
 			for i, length := 0, val.Len(); i < length; i++ {
 				if subpval := p.marshal(val.Index(i)); subpval != nil {
-					values[i] = subpval
+					values = append(values, subpval)
 				}
 			}
 			return &cfArray{values}

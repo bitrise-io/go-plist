@@ -1026,6 +1026,18 @@ var tests = []TestData{
 		},
 	},
 	{
+		Name: "Embedded fields within a nil member",
+		Value: struct {
+			*InnerStructWithSimpleField
+		}{},
+		DecodeValue: struct {
+			*InnerStructWithSimpleField
+		}{&InnerStructWithSimpleField{}},
+		Documents: map[int][]byte{
+			GNUStepFormat: []byte(`{S="";}`),
+		},
+	},
+	{
 		Name: "Embedded fields within a nil omitempty member, telescoping",
 		Value: struct {
 			O                      string `plist:",omitempty"`

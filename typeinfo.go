@@ -208,6 +208,10 @@ func (finfo *fieldInfo) value(v reflect.Value) reflect.Value {
 	for i, x := range finfo.idx {
 		t := v.Type()
 		if t.Kind() == reflect.Ptr && t.Elem().Kind() == reflect.Struct {
+			if v.IsNil() {
+				// A nil embedded struct without omitempty marshals its zero-valued fields.
+				v = reflect.New(t.Elem())
+			}
 			v = v.Elem()
 		}
 
